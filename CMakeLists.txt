@@ -33,6 +33,9 @@ tvm_option(USE_OPENCL_ENABLE_HOST_PTR "Enable OpenCL memory object access to hos
 tvm_option(USE_OPENCL_GTEST "Path to OpenCL specific gtest version for runtime cpp tests." /path/to/opencl/gtest)
 tvm_option(USE_VULKAN "Build with Vulkan" OFF)
 
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_CXX_FLAGS_DEBUG "-g")
+
 
 # Whether to use spirv-tools.and SPIRV-Headers from Khronos github or gitlab.
 #
