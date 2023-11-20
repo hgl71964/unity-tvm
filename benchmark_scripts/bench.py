@@ -24,7 +24,6 @@ from typing import List, Optional, Dict, Tuple, Union
 import numpy as np
 
 import tvm
-from tvm import relay
 from tvm import relax
 from tvm import meta_schedule as ms
 from tvm.meta_schedule.testing.relay_workload import get_network
@@ -97,6 +96,11 @@ def build(
     return ex, vm
 
 
+'''
+More example in apps/relax_examples
+'''
+
+
 def main(_):
     compiled_suffix = configs.compiled_suffix
     batch_size = configs.batch_size
@@ -111,7 +115,7 @@ def main(_):
     if bool(FLAGS.d):
         # so that python stops and we can attach debugger
         pid = os.getpid()
-        input(f"attach to pid {pid}")
+        input(f"attach to pid {pid} and press enter")
 
     # For each model listed in config, load the relay representation of the
     # model, compiles to tvm relay factory module, and store the results into
@@ -133,6 +137,7 @@ def main(_):
             target=target,
             opt_level=-1,  # disable relay optimization
         )
+        # relax_mod.show()  # for debug
 
         # Compile the optimised tensor code for each tensor operator
         if FLAGS.mode == 'tune':
