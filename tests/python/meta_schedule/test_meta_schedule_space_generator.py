@@ -107,4 +107,5 @@ def test_meta_schedule_design_space_generator_NIE():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    # tvm.testing.main()
+    test_meta_schedule_space_generator_schedule_fn()
