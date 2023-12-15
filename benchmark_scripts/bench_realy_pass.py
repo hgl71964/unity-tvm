@@ -18,6 +18,7 @@
 import os
 import sys
 import logging
+import random
 import tempfile
 from typing import List, Optional, Dict, Tuple, Union
 
@@ -25,6 +26,7 @@ import numpy as np
 
 import tvm
 from tvm import relay
+from tvm.relay.transform import _ffi_api
 from tvm.relay.backend.executor_factory import ExecutorFactoryModule
 from tvm import meta_schedule as ms
 from tvm.meta_schedule.testing.relay_workload import get_network
@@ -47,7 +49,9 @@ from absl import flags
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("d", 0, "debug or not")
 flags.DEFINE_string("t", "llvm", "target")
-flags.DEFINE_integer("opt_level", 3, "")
+flags.DEFINE_integer("opt_level", 4, "")
+flags.DEFINE_integer("b", 1, "whether build and bench")
+flags.DEFINE_integer("seed", 0, "")
 
 # This script is modified from https://github.com/apache/tvm/blob/main/tests/python/integration/test_tuning.py
 logging.basicConfig(
@@ -57,7 +61,64 @@ logging.basicConfig(
 logging.getLogger("tvm.meta_schedule").setLevel(logging.DEBUG)
 
 
+class Printer(tvm.ir.instrument.PassInstrument):
+
+    def __init__(self):
+        tvm.ir.instrument.PassInstrument.__init__(self)
+        self.relay_passes = {}
+        self.tir_passes = {}
+        self.deps = {}
+        self.blacklist = set("sequential", )
+
+    def run_before_pass(self, mod, info):
+        if info.name in self.blacklist:
+            return
+
+        if info.name[:3] == "tir":
+            self.tir_passes[info.name] = info.opt_level
+        else:
+            self.relay_passes[info.name] = info.opt_level
+        self.deps[info.name] = info.required
+
+    def run_after_pass(self, mod, info):
+        pass
+
+
+def SimplifyExprPostAlterOp():
+    return _ffi_api.SimplifyExprPostAlterOp()
+
+
+def get_default_passes(passes: dict[str, int]):
+    availables = [
+        relay.transform.RemoveUnusedFunctions(),
+        relay.transform.ToBasicBlockNormalForm(),
+        relay.qnn.transform.Legalize(),
+        relay.transform.InferType(),
+        relay.qnn.transform.CanonicalizeOps(),
+        relay.transform.SimplifyInference(),
+        relay.transform.EliminateCommonSubexpr(),
+        relay.transform.CombineParallelConv2D(),
+        relay.transform.CombineParallelDense(),
+        relay.transform.CombineParallelBatchMatmul(),
+        relay.transform.FoldConstant(),
+        relay.transform.FoldScaleAxis(),
+        relay.transform.BackwardFoldScaleAxis(),
+        relay.transform.ForwardFoldScaleAxis(),
+        relay.transform.SimplifyExpr(),
+        relay.transform.CanonicalizeCast(),
+        relay.transform.CanonicalizeOps(),
+        relay.transform.FlattenAtrousConv(),
+        relay.transform.AlterOpLayout(),
+        SimplifyExprPostAlterOp(),
+        relay.transform.FastMath(),
+    ]
+    return availables
+
+
 def main(_):
+    random.seed(FLAGS.seed)
+    np.random.seed(FLAGS.seed)
+
     compiled_suffix = configs.compiled_suffix
     batch_size = configs.batch_size
     tuning_log_path = configs.tuning_logs_path
@@ -67,7 +128,7 @@ def main(_):
     print(f"using target: {FLAGS.t}")
     target = configs.available_targets[FLAGS.t]
 
-    if FLAGS.d:
+    if bool(FLAGS.d):
         # so that python stops and we can attach debugger
         pid = os.getpid()
         input(f"attach to pid {pid}")
@@ -85,36 +146,44 @@ def main(_):
             dtype=dtype,
             workload_shape=shape)
 
-        # run passes
+        # run (default) passes
+        copy = mod
+        # print(f"before pass: {id(copy)} {id(mod)}")
         seq = tvm.get_global_func("relay.backend.GetPassPrefixSeq")(True,
                                                                     False)
+        printer = Printer()
         with target, _autotvm_silencer(), tvm.transform.PassContext(
-                opt_level=FLAGS.opt_level,
+                opt_level=4,  # run at the highest level to get all passes
                 # config=pass_config,
                 # disabled_pass=disabled_pass,
-                # instruments=instruments,
+                instruments=[printer],
         ):
-            mod = seq(mod)
+            copy = seq(copy)
+        # print(f"after pass: {id(copy)} {id(mod)}")
+        # print('Pass Stats: ')
+        # for k, v in printer.relay_passes.items():
+        #     print(f'{k}: {v}')
+        #     print()
 
-            lib: ExecutorFactoryModule = relay.build(
-                mod,
-                target=target,
-                params=params,
-            )
-            dev = tvm.device(str(target), 0)
-            graph_module = graph_executor.GraphModule(lib["default"](dev))
-        # inputs = generate_input_data(
-        #     input_shape=input_shape,
-        #     input_dtype=dtype,
-        #     low=0.,
-        #     high=1.,
-        # )
-        dev = tvm.device(str(target), 0)
-        result = graph_module.benchmark(dev)
+        # build and bench
+        if bool(FLAGS.b):
+            with target, _autotvm_silencer(), tvm.transform.PassContext(
+                    opt_level=FLAGS.opt_level,
+                    # config=pass_config,  # TODO use config to specify passes
+                    # disabled_pass=disabled_pass,
+            ):
+                lib: ExecutorFactoryModule = relay.build(
+                    mod,
+                    target=target,
+                    params=params,
+                )
+                dev = tvm.device(str(target), 0)
+                graph_module = graph_executor.GraphModule(lib["default"](dev))
+                result = graph_module.benchmark(dev)
 
-        # cost = result.mean * 1e3
-        print(f"results: ")
-        print(result)
+                # cost = result.mean * 1e3
+                print(f"results: ")
+                print(result)
 
 
 if __name__ == "__main__":
