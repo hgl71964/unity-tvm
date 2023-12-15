@@ -9,7 +9,6 @@ from pathlib import Path
 #   "<model name>": ("<input Layout>", "<data type>", "<data layout>")
 available_models: Dict[str, Tuple[str, str, Tuple[int, ...]]] = {
     "bert": ("NHWC", "int64", (128, )),
-    "bert-mx": ("NHWC", "float32", (128, )),
     "bertsquad-8": ("NHWC", "int64", (256, )),
     # "bertsquad-10": ("NHWC", "int64", (256, )),
     "bertsquad-12": ("NHWC", "int64", (256, )),
@@ -45,10 +44,11 @@ available_models: Dict[str, Tuple[str, str, Tuple[int, ...]]] = {
 # via tvm.target.Target(<CUDA TAG>)
 available_targets: Dict[str, tvm.target.Target] = {
     # "A100": tvm.target.Target("nvidia/nvidia-a100"),
-    "a100": tvm.target.Target("nvidia/nvidia-a100"),
+    # "a100": tvm.target.Target("nvidia/nvidia-a100"),
     # "P100": tvm.target.Target("nvidia/tesla-p100"),
-    "p100": tvm.target.Target("nvidia/tesla-p100"),
+    # "p100": tvm.target.Target("nvidia/tesla-p100"),
     # "LLVM": tvm.target.Target("llvm -num-cores 6"),
+    "gtx1080": tvm.target.Target("nvidia/geforce-gtx-1080"),
     "llvm": tvm.target.Target("llvm -num-cores 6"),
     "LLVM_AVX2": tvm.target.Target("llvm -mcpu=core-avx2"),
     # "c": tvm.target.Target("c"),

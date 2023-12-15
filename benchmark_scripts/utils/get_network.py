@@ -306,46 +306,6 @@ def get_relay_network(name: str,
         shape_list = [(input_name, input_shape)]
         mod, params = tvm.relay.frontend.from_pytorch(scripted_model,
                                                       shape_list)
-    elif name == "bert-mx":
-        # This is the version of bert used in the benchmark script used in the Ansor
-        # "Ansor : Generating High-Performance Tensor Programs for Deep Learning" paper
-        import gluonnlp
-
-        seq_length = 128
-
-        # Instantiate a BERT classifier using GluonNLP
-        model_name = "bert_12_768_12"
-        dataset = "book_corpus_wiki_en_uncased"
-        model, _ = gluonnlp.model.get_model(
-            name=model_name,
-            dataset_name=dataset,
-            pretrained=True,
-            use_pooler=True,
-            use_decoder=False,
-            use_classifier=False,
-        )
-
-        # Convert the MXNet model into TVM Relay format
-        shape_dict = {
-            "data0": (batch_size, seq_length),
-            "data1": (batch_size, seq_length),
-            "data2": (batch_size, ),
-        }
-        mod, params = tvm.relay.frontend.from_mxnet(model, shape_dict)
-        input_shape = (shape_dict["data0"], shape_dict["data1"],
-                       shape_dict["data2"])
-
-        # mod = tvm.relay.transform.FastMath()(mod)
-        # mod = tvm.relay.transform.EliminateCommonSubexpr()(mod)
-        BindPass = tvm.relay.transform.function_pass(
-            lambda fn, new_mod, ctx: tvm.relay.build_module.
-            bind_params_by_name(fn, params),
-            opt_level=1,
-        )
-        mod = BindPass(mod)
-        # mod = tvm.relay.transform.FoldConstant()(mod)
-        # mod = tvm.relay.transform.CombineParallelBatchMatmul()(mod)
-        # mod = tvm.relay.transform.FoldConstant()(mod)
     else:
         raise ValueError(f"Model not supported: {name}")
 

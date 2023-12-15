@@ -48,6 +48,7 @@ from absl import flags
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("mode", "default", "default/custom/print")
+flags.DEFINE_string("t", None, "target")
 flags.DEFINE_integer("seed", 0, "")
 
 
@@ -139,7 +140,16 @@ def main(_):
     tuning_log_path = configs.tuning_logs_path
     operator_libs_path = configs.operator_libs_path
 
-    for target_name, target in configs.available_targets.items():
+    # target
+    if FLAGS.t is None:
+        target_names = list(configs.available_targets.keys())
+        targets = [t for t in configs.available_targets.values()]
+    else:
+        assert FLAGS.t in configs.available_targets, f"Unknown target: {FLAGS.t}"
+        target_names = [FLAGS.t]
+        targets = [configs.available_targets[FLAGS.t]]
+
+    for target_name, target in zip(target_names, targets):
         for model_name, (layout, dtype,
                          shape) in configs.available_models.items():
             print(f'trying {model_name} on {target_name}')
