@@ -211,7 +211,7 @@ def main(_):
 
             file_name = f'{model_name}_untuned_{FLAGS.mode}_{FLAGS.seed}'
             file_name += '.pkl'
-            with open(f'{dir_path}/{file_name}', 'w') as f:
+            with open(f'{dir_path}/{file_name}', 'wb') as f:
                 pickle.dump(data, f)
 
 
