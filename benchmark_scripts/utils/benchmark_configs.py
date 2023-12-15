@@ -1,5 +1,4 @@
 import tvm
-from os import path
 from typing import Tuple, List, Dict, Callable
 from pathlib import Path
 
@@ -12,25 +11,29 @@ available_models: Dict[str, Tuple[str, str, Tuple[int, ...]]] = {
     "bert": ("NHWC", "int64", (128, )),
     "bert-mx": ("NHWC", "float32", (128, )),
     "bertsquad-8": ("NHWC", "int64", (256, )),
-    "bertsquad-10": ("NHWC", "int64", (256, )),
+    # "bertsquad-10": ("NHWC", "int64", (256, )),
     "bertsquad-12": ("NHWC", "int64", (256, )),
     "dcgan": ("NHWC", "float32", (3, 64, 64)),
     "mobilenet": ("NHWC", "float32", (224, 224, 3)),
     "resnet-18": ("NHWC", "float32", (224, 224, 3)),
-    "resnet-34": ("NHWC", "float32", (224, 224, 3)),
+    # "resnet-34": ("NHWC", "float32", (224, 224, 3)),
     "resnet-50": ("NHWC", "float32", (224, 224, 3)),
     "resnet-101": ("NHWC", "float32", (224, 224, 3)),
-    "resnet-152": ("NHWC", "float32", (224, 224, 3)),
+    # "resnet-152": ("NHWC", "float32", (224, 224, 3)),
     "resnet3d-18": ("NCDHW", "float32", (3, 16, 112, 112)),
-    "resnet3d-34": ("NCDHW", "float32", (3, 16, 112, 112)),
+    # "resnet3d-34": ("NCDHW", "float32", (3, 16, 112, 112)),
     "resnet3d-50": ("NCDHW", "float32", (3, 16, 112, 112)),
-    "resnet3d-101": ("NCDHW", "float32", (3, 16, 112, 112)),
+    # "resnet3d-101": ("NCDHW", "float32", (3, 16, 112, 112)),
     "resnet3d-152": ("NCDHW", "float32", (3, 16, 112, 112)),
     "vit": ("NCHW", "float32", (3, 224, 224)),
     "vgg-11": ("NHWC", "float32", (224, 224, 3)),
-    "vgg-13": ("NHWC", "float32", (224, 224, 3)),
-    "vgg-16": ("NHWC", "float32", (224, 224, 3)),
+    # "vgg-13": ("NHWC", "float32", (224, 224, 3)),
+    # "vgg-16": ("NHWC", "float32", (224, 224, 3)),
     "vgg-19": ("NHWC", "float32", (224, 224, 3)),
+    "densenet-121": ("NCHW", "float32", (3, 224, 224)),
+    "dqn": ("NCHW", "float32", (4, 84, 84)),
+    "inception-v3": ("NCHW", "float32", (3, 299, 299)),
+    "lstm": ("NCHW", "float32", (16, 128, 128)),
 }
 
 # Lists all the available compile targets
@@ -41,11 +44,11 @@ available_models: Dict[str, Tuple[str, str, Tuple[int, ...]]] = {
 # To see CUDA/TVM's tag name for the target. New Nvidia GPU targets can be added directly
 # via tvm.target.Target(<CUDA TAG>)
 available_targets: Dict[str, tvm.target.Target] = {
-    "A100": tvm.target.Target("nvidia/nvidia-a100"),
+    # "A100": tvm.target.Target("nvidia/nvidia-a100"),
     "a100": tvm.target.Target("nvidia/nvidia-a100"),
-    "P100": tvm.target.Target("nvidia/tesla-p100"),
+    # "P100": tvm.target.Target("nvidia/tesla-p100"),
     "p100": tvm.target.Target("nvidia/tesla-p100"),
-    "LLVM": tvm.target.Target("llvm -num-cores 6"),
+    # "LLVM": tvm.target.Target("llvm -num-cores 6"),
     "llvm": tvm.target.Target("llvm -num-cores 6"),
     "LLVM_AVX2": tvm.target.Target("llvm -mcpu=core-avx2"),
     # "c": tvm.target.Target("c"),

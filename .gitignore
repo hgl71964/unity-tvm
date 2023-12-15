@@ -281,3 +281,4 @@ gallery/how_to/work_with_microtvm/micro_tvmc.py
 # model cache
 relay_models/
 cached_relay_models/
+data/

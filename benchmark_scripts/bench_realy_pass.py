@@ -20,6 +20,7 @@ import sys
 import logging
 import random
 import tempfile
+import pickle
 from typing import List, Optional, Dict, Tuple, Union
 
 import numpy as np
@@ -29,7 +30,6 @@ from tvm import relay
 from tvm.relay.transform import _ffi_api
 from tvm.relay.backend.executor_factory import ExecutorFactoryModule
 from tvm import meta_schedule as ms
-from tvm.meta_schedule.testing.relay_workload import get_network
 from tvm.meta_schedule.testing.tune_utils import generate_input_data
 from tvm.target.target import Target
 from tvm.runtime.vm import Executable
@@ -47,18 +47,8 @@ from absl import app
 from absl import flags
 
 FLAGS = flags.FLAGS
-flags.DEFINE_integer("d", 0, "debug or not")
-flags.DEFINE_string("t", "llvm", "target")
-flags.DEFINE_integer("opt_level", 4, "")
-flags.DEFINE_integer("b", 1, "whether build and bench")
+flags.DEFINE_string("mode", "default", "default/custom/print")
 flags.DEFINE_integer("seed", 0, "")
-
-# This script is modified from https://github.com/apache/tvm/blob/main/tests/python/integration/test_tuning.py
-logging.basicConfig(
-    format="%(asctime)s.%(msecs)03d %(levelname)s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logging.getLogger("tvm.meta_schedule").setLevel(logging.DEBUG)
 
 
 class Printer(tvm.ir.instrument.PassInstrument):
@@ -115,6 +105,31 @@ def get_default_passes(passes: dict[str, int]):
     return availables
 
 
+def run_print(mod, target):
+    seq = tvm.get_global_func("relay.backend.GetPassPrefixSeq")(True, False)
+    printer = Printer()
+    with target, _autotvm_silencer(), tvm.transform.PassContext(
+            opt_level=4,  # run at the highest level to get all passes
+            # config=pass_config,
+            # disabled_pass=disabled_pass,
+            instruments=[printer],
+    ):
+        mod = seq(mod)
+    # print('Pass Stats: ')
+    # for k, v in printer.relay_passes.items():
+    #     print(f'{k}: {v}')
+    #     print()
+    return mod
+
+
+def run_custom(mod, target):
+    seq = get_default_passes()
+    random.shuffle(seq)
+    with target, _autotvm_silencer(), tvm.transform.PassContext(opt_level=4, ):
+        mod = seq(mod)
+    return mod
+
+
 def main(_):
     random.seed(FLAGS.seed)
     np.random.seed(FLAGS.seed)
@@ -124,66 +139,70 @@ def main(_):
     tuning_log_path = configs.tuning_logs_path
     operator_libs_path = configs.operator_libs_path
 
-    assert FLAGS.t in configs.available_targets, f"Unknown target: {FLAGS.t}"
-    print(f"using target: {FLAGS.t}")
-    target = configs.available_targets[FLAGS.t]
+    for target_name, target in configs.available_targets.items():
+        for model_name, (layout, dtype,
+                         shape) in configs.available_models.items():
+            print(f'trying {model_name} on {target_name}')
+            try:
+                mod, params, input_shape, output_shape = get_relay_network(
+                    configs=configs,
+                    batch_size=batch_size,
+                    name=model_name,
+                    layout=layout,
+                    dtype=dtype,
+                    workload_shape=shape)
 
-    if bool(FLAGS.d):
-        # so that python stops and we can attach debugger
-        pid = os.getpid()
-        input(f"attach to pid {pid}")
+                if FLAGS.mode == "print":
+                    mod = run_print(mod, target)
+                    return
+                elif FLAGS.mode == "custom":
+                    mod = run_custom(mod, target)
+                elif FLAGS.mode == "default":
+                    pass  # build will use default pass
+                else:
+                    raise RuntimeError(f"Unknown mode: {FLAGS.mode}")
 
-    # For each model listed in config, load the relay representation of the
-    # model, compiles to tvm relay factory module, and store the results into
-    # individual files, whose file names are specified by the model name and
-    # the suffixes defined above.
-    for model_name, (layout, dtype, shape) in configs.models.items():
-        mod, params, input_shape, output_shape = get_relay_network(
-            configs=configs,
-            batch_size=batch_size,
-            name=model_name,
-            layout=layout,
-            dtype=dtype,
-            workload_shape=shape)
+                # build and bench
+                with target, _autotvm_silencer(), tvm.transform.PassContext(
+                        opt_level=4 if FLAGS.mode == "default" else 0):
+                    lib: ExecutorFactoryModule = relay.build(
+                        mod,
+                        target=target,
+                        params=params,
+                    )
+                    dev = tvm.device(str(target), 0)
+                    graph_module = graph_executor.GraphModule(
+                        lib["default"](dev))
+                    result = graph_module.benchmark(dev)
 
-        # run (default) passes
-        copy = mod
-        # print(f"before pass: {id(copy)} {id(mod)}")
-        seq = tvm.get_global_func("relay.backend.GetPassPrefixSeq")(True,
-                                                                    False)
-        printer = Printer()
-        with target, _autotvm_silencer(), tvm.transform.PassContext(
-                opt_level=4,  # run at the highest level to get all passes
-                # config=pass_config,
-                # disabled_pass=disabled_pass,
-                instruments=[printer],
-        ):
-            copy = seq(copy)
-        # print(f"after pass: {id(copy)} {id(mod)}")
-        # print('Pass Stats: ')
-        # for k, v in printer.relay_passes.items():
-        #     print(f'{k}: {v}')
-        #     print()
+            except Exception as e:
+                print(f'failed {model_name} on {target_name}: {e}')
+                continue
 
-        # build and bench
-        if bool(FLAGS.b):
-            with target, _autotvm_silencer(), tvm.transform.PassContext(
-                    opt_level=FLAGS.opt_level,
-                    # config=pass_config,  # TODO use config to specify passes
-                    # disabled_pass=disabled_pass,
-            ):
-                lib: ExecutorFactoryModule = relay.build(
-                    mod,
-                    target=target,
-                    params=params,
-                )
-                dev = tvm.device(str(target), 0)
-                graph_module = graph_executor.GraphModule(lib["default"](dev))
-                result = graph_module.benchmark(dev)
+            # cost = result.mean * 1e3
+            print(
+                f"model: {model_name}; target: {target}, cost: {result.mean} ms"
+            )
 
-                # cost = result.mean * 1e3
-                print(f"results: ")
-                print(result)
+            data = {
+                'model_name': model_name,
+                'mean': result.mean,
+                'median': result.median,
+                'max': result.max,
+                'min': result.min,
+                'std': result.std,
+                'input_shape': shape,
+                'dtype': dtype,
+                'layout': layout,
+            }
+            dir_path = f'data/{target_name}'
+            if not os.path.exists(dir_path):
+                os.makedirs(dir_path)
+
+            file_name = f'{model_name}_untuned_{FLAGS.mode}_{FLAGS.seed}'
+            file_name += '.pkl'
+            with open(f'{dir_path}/{file_name}', 'w') as f:
+                pickle.dump(data, f)
 
 
 if __name__ == "__main__":

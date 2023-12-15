@@ -147,10 +147,35 @@ def get_relay_network(name: str,
         mod, params = tvm.relay.testing.vgg.get_workload(
             batch_size=batch_size,
             num_classes=1000,
-            image_shape=input_shape,
+            image_shape=workload_shape,
             dtype=dtype,
             num_layers=n_layer,
             batch_norm=False)
+    elif name == "densenet":
+        mod, params = tvm.relay.testing.densenet.get_workload(
+            batch_size=batch_size,
+            dtype=dtype,
+            image_shape=workload_shape,
+        )
+    elif name == "dqn":
+        mod, params = tvm.relay.testing.dqn.get_workload(
+            batch_size=batch_size,
+            dtype=dtype,
+            image_shape=workload_shape,
+        )
+    elif name == "inception-v3":
+        mod, params = tvm.relay.testing.inception_v3.get_workload(
+            batch_size=batch_size,
+            dtype=dtype,
+            image_shape=workload_shape,
+        )
+    elif name == "lstm":
+        mod, params = tvm.relay.testing.lstm.get_workload(
+            batch_size=batch_size,
+            iterations=workload_shape[0],
+            num_hidden=workload_shape[1],
+            dtype=dtype,
+        )
     elif name.startswith("bertsquad-"):
         import onnx
         onnx_model = onnx.load(
@@ -169,49 +194,84 @@ def get_relay_network(name: str,
         input_shape = input_tup
     elif name == "bert":
         # In reference to https://gist.github.com/merrymercy/c48da9e09822101453a2870260678dc7#file-tune_bert_x86-py-L197
+        # import torch
+        # import transformers  # pip3 install transfomers==3.0
+
+        # os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+
+        # model_class = transformers.BertModel
+        # tokenizer_class = transformers.BertTokenizer
+
+        # # You can also download them manualy
+        # #   https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-pytorch_model.bin
+        # #   https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt
+        # #   https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-config.json
+        # # Then rename to pytorch_model.bin, vocab.txt & config.json
+        # # weight = 'path to downloaded model dir'
+        # weight = 'bert-base-uncased'
+        # model = model_class.from_pretrained(
+        #     weight, return_dict=False)  # Modification is needed here
+        # model.eval()
+
+        # # tokenizer = tokenizer_class.from_pretrained(weight)
+        # # A = torch.tensor([tokenizer.encode("Here is some text to encode", add_special_tokens=True)])
+        # # There is 30522 words in bert-base-uncased's vocabulary list
+        # input_shape = [batch_size,
+        #                256]  # Changed input size = 256 to maintain consistency
+        # input_name = 'input_ids'
+        # input_dtype = 'int64'
+        # rand_input = torch.randint(30000, input_shape)
+        # scripted_model = torch.jit.trace(model, [rand_input], strict=False)
+        # shape_list = [('input_ids', input_shape)]
+        # mod, params = tvm.relay.frontend.from_pytorch(scripted_model,
+        #                                               shape_list)
+
+        # mod = tvm.relay.transform.FastMath()(mod)
+        # mod = tvm.relay.transform.EliminateCommonSubexpr()(mod)
+        # BindPass = tvm.relay.transform.function_pass(
+        #     lambda fn, new_mod, ctx: tvm.relay.build_module.
+        #     bind_params_by_name(fn, params),
+        #     opt_level=1)
+        # mod = BindPass(mod)
+        # mod = tvm.relay.transform.FoldConstant()(mod)
+        # mod = tvm.relay.transform.CombineParallelBatchMatmul()(mod)
+        # mod = tvm.relay.transform.FoldConstant()(mod)
+        # input_shape = tuple(input_shape)
+
         import torch
-        import transformers  # pip3 install transfomers==3.0
+        from transformers import BertForSequenceClassification
+        from tvm.relay.transform import ToMixedPrecision
 
-        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+        model = BertForSequenceClassification.from_pretrained(
+            'bert-large-uncased')
 
-        model_class = transformers.BertModel
-        tokenizer_class = transformers.BertTokenizer
+        batch_size = 8
+        inputs = (torch.ones(batch_size, 128, dtype=torch.int64),
+                  torch.ones(batch_size, 128, dtype=torch.int64),
+                  torch.ones(batch_size, 128, dtype=torch.int64))
 
-        # You can also download them manualy
-        #   https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-pytorch_model.bin
-        #   https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt
-        #   https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-config.json
-        # Then rename to pytorch_model.bin, vocab.txt & config.json
-        # weight = 'path to downloaded model dir'
-        weight = 'bert-base-uncased'
-        model = model_class.from_pretrained(
-            weight, return_dict=False)  # Modification is needed here
-        model.eval()
+        input_shapes = [("input_ids", (inputs[0].shape, "int64")),
+                        ("attention_mask", (inputs[1].shape, "int64")),
+                        ("token_type_ids", (inputs[2].shape, "int64"))]
 
-        # tokenizer = tokenizer_class.from_pretrained(weight)
-        # A = torch.tensor([tokenizer.encode("Here is some text to encode", add_special_tokens=True)])
-        # There is 30522 words in bert-base-uncased's vocabulary list
-        input_shape = [batch_size,
-                       256]  # Changed input size = 256 to maintain consistency
-        input_name = 'input_ids'
-        input_dtype = 'int64'
-        rand_input = torch.randint(30000, input_shape)
-        scripted_model = torch.jit.trace(model, [rand_input], strict=False)
-        shape_list = [('input_ids', input_shape)]
-        mod, params = tvm.relay.frontend.from_pytorch(scripted_model,
-                                                      shape_list)
+        with torch.no_grad():
+            out = model(*inputs)
 
-        mod = tvm.relay.transform.FastMath()(mod)
-        mod = tvm.relay.transform.EliminateCommonSubexpr()(mod)
-        BindPass = tvm.relay.transform.function_pass(
-            lambda fn, new_mod, ctx: tvm.relay.build_module.
-            bind_params_by_name(fn, params),
-            opt_level=1)
-        mod = BindPass(mod)
-        mod = tvm.relay.transform.FoldConstant()(mod)
-        mod = tvm.relay.transform.CombineParallelBatchMatmul()(mod)
-        mod = tvm.relay.transform.FoldConstant()(mod)
-        input_shape = tuple(input_shape)
+        class TraceWrapper(torch.nn.Module):
+
+            def __init__(self, model):
+                super().__init__()
+                self.model = model
+
+            def forward(self, *inp):
+                out = self.model(*inp)
+                return out["logits"]
+
+        input_shape = (list(inp.shape) for inp in inputs)
+        script_module = torch.jit.trace(TraceWrapper(model), inputs).eval()
+        mod, params = relay.frontend.from_pytorch(script_module, input_shapes)
+        mod = ToMixedPrecision("float16")(mod)
+
     elif name == "vit":
         import torch
         import transformers  # pip3 install transfomers==3.0
@@ -275,17 +335,17 @@ def get_relay_network(name: str,
         input_shape = (shape_dict["data0"], shape_dict["data1"],
                        shape_dict["data2"])
 
-        mod = tvm.relay.transform.FastMath()(mod)
-        mod = tvm.relay.transform.EliminateCommonSubexpr()(mod)
+        # mod = tvm.relay.transform.FastMath()(mod)
+        # mod = tvm.relay.transform.EliminateCommonSubexpr()(mod)
         BindPass = tvm.relay.transform.function_pass(
             lambda fn, new_mod, ctx: tvm.relay.build_module.
             bind_params_by_name(fn, params),
             opt_level=1,
         )
         mod = BindPass(mod)
-        mod = tvm.relay.transform.FoldConstant()(mod)
-        mod = tvm.relay.transform.CombineParallelBatchMatmul()(mod)
-        mod = tvm.relay.transform.FoldConstant()(mod)
+        # mod = tvm.relay.transform.FoldConstant()(mod)
+        # mod = tvm.relay.transform.CombineParallelBatchMatmul()(mod)
+        # mod = tvm.relay.transform.FoldConstant()(mod)
     else:
         raise ValueError(f"Model not supported: {name}")
 
