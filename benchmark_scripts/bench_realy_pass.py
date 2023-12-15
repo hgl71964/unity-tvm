@@ -34,6 +34,7 @@ from tvm.runtime.vm import Executable
 from tvm.runtime.module import Module
 
 import tvm.contrib.graph_executor as graph_executor
+from tvm.meta_schedule.relay_integration import _autotvm_silencer
 
 # benchmark utils
 sys.path.append(os.path.dirname(sys.path[0]))
@@ -45,8 +46,8 @@ from absl import flags
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("d", 0, "debug or not")
-flags.DEFINE_string("mode", "build", "compile mode")
 flags.DEFINE_string("t", "llvm", "target")
+flags.DEFINE_integer("opt_level", 3, "")
 
 # This script is modified from https://github.com/apache/tvm/blob/main/tests/python/integration/test_tuning.py
 logging.basicConfig(
@@ -56,56 +57,6 @@ logging.basicConfig(
 logging.getLogger("tvm.meta_schedule").setLevel(logging.DEBUG)
 
 
-def ms_tune(
-    mod: tvm.IRModule,
-    params,
-    input_shape: Tuple[int],
-    target: Target,
-):
-    with tempfile.TemporaryDirectory() as work_dir:
-        with ms.Profiler() as profiler:
-            database = ms.relay_integration.tune_relay(
-                mod=mod,
-                target=target,
-                params=params,
-                work_dir=work_dir,
-                max_trials_global=configs.num_measure_trials,
-            )
-            lib: ExecutorFactoryModule = ms.relay_integration.compile_relay(
-                database=database,
-                mod=mod,
-                target=target,
-                params=params,
-                backend='graph',
-            )
-
-        # must exit profiler scope
-        print(f'profiler:: ')
-        print(profiler.table())
-
-        # 'llvm' -> tvm.cpu(0)
-        device = tvm.device(str(target), 0)
-        graph_module = graph_executor.GraphModule(lib["default"](device))
-    return graph_module
-
-
-def build(
-    mod: tvm.IRModule,
-    params,
-    input_shape: Tuple[int],
-    target: Target,
-):
-    with tvm.transform.PassContext(opt_level=3):
-        lib: ExecutorFactoryModule = relay.build(
-            mod,
-            target=target,
-            params=params,
-        )
-        dev = tvm.device(str(target), 0)
-        graph_module = graph_executor.GraphModule(lib["default"](dev))
-    return graph_module
-
-
 def main(_):
     compiled_suffix = configs.compiled_suffix
     batch_size = configs.batch_size
@@ -113,7 +64,6 @@ def main(_):
     operator_libs_path = configs.operator_libs_path
 
     assert FLAGS.t in configs.available_targets, f"Unknown target: {FLAGS.t}"
-    print(f"build mode: {FLAGS.mode}")
     print(f"using target: {FLAGS.t}")
     target = configs.available_targets[FLAGS.t]
 
@@ -135,25 +85,24 @@ def main(_):
             dtype=dtype,
             workload_shape=shape)
 
-        # Compile the optimised tensor code for each tensor operator
-        print(f"Tuning and Compiling {model_name} with {FLAGS.mode}...")
-        if FLAGS.mode == 'tune':
-            graph_module = ms_tune(
-                mod=mod,
-                params=params,
-                input_shape=input_shape,
-                target=target,
-            )
-        elif FLAGS.mode == 'build':
-            graph_module = build(
-                mod=mod,
-                params=params,
-                input_shape=input_shape,
-                target=target,
-            )
-        else:
-            raise RuntimeError(f"Unknown mode: {FLAGS.mode}")
+        # run passes
+        seq = tvm.get_global_func("relay.backend.GetPassPrefixSeq")(True,
+                                                                    False)
+        with target, _autotvm_silencer(), tvm.transform.PassContext(
+                opt_level=FLAGS.opt_level,
+                # config=pass_config,
+                # disabled_pass=disabled_pass,
+                # instruments=instruments,
+        ):
+            mod = seq(mod)
 
+            lib: ExecutorFactoryModule = relay.build(
+                mod,
+                target=target,
+                params=params,
+            )
+            dev = tvm.device(str(target), 0)
+            graph_module = graph_executor.GraphModule(lib["default"](dev))
         # inputs = generate_input_data(
         #     input_shape=input_shape,
         #     input_dtype=dtype,
@@ -166,11 +115,6 @@ def main(_):
         # cost = result.mean * 1e3
         print(f"results: ")
         print(result)
-
-        # Export the library for future use; TODO linker fail in macbook!
-        # compiled_model = f"{model_name}_{compiled_suffix}.so"
-        # lib.export_library(str(operator_libs_path.joinpath(f"{compiled_model}")))
-        # print(f"Exported compiled library to {compiled_model}")
 
 
 if __name__ == "__main__":
