@@ -50,7 +50,7 @@ available_targets: Dict[str, tvm.target.Target] = {
     # "LLVM": tvm.target.Target("llvm -num-cores 6"),
     "gtx1080": tvm.target.Target("nvidia/geforce-gtx-1080"),
     "llvm": tvm.target.Target("llvm -num-cores 6"),
-    "LLVM_AVX2": tvm.target.Target("llvm -mcpu=core-avx2"),
+    # "LLVM_AVX2": tvm.target.Target("llvm -mcpu=core-avx2"),
     # "c": tvm.target.Target("c"),
     # "ccompiler": tvm.target.Target("ccompiler"),
     # "opencl": tvm.target.Target("opencl"),
